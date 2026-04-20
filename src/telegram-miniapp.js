@@ -38,7 +38,7 @@ const FILTERED_KEYS = new Set([
 ]);
 
 function getTelegramWebApp() {
-  return window?.Telegram?.WebApp ?? null;
+  return window.Telegram?.WebApp ?? null;
 }
 
 function isPrimitive(value) {
@@ -137,18 +137,15 @@ function getWebAppSnapshot(webApp) {
     }
   });
 
-  const dynamicKeys = Array.from(
-    new Set([...Object.keys(webApp), ...Object.getOwnPropertyNames(webApp)])
-  );
+  const dynamicOwnKeys = Object.keys(webApp)
+    .filter((key) => !FILTERED_KEYS.has(key) && !snapshot[key])
+    .sort();
 
-  dynamicKeys
-    .filter((key) => !FILTERED_KEYS.has(key) && !(key in snapshot))
-    .sort()
-    .forEach((key) => {
-      const value = safelyRead(() => webApp[key]);
-      if (typeof value === 'function' || isEmptyValue(value)) return;
-      snapshot[key] = value;
-    });
+  dynamicOwnKeys.forEach((key) => {
+    const value = safelyRead(() => webApp[key]);
+    if (typeof value === 'function' || isEmptyValue(value)) return;
+    snapshot[key] = value;
+  });
 
   return snapshot;
 }
@@ -217,7 +214,7 @@ export function collectTelegramData(webApp) {
   if (!webApp) {
     return {
       available: false,
-      message: 'Telegram WebApp API не найден. Откройте Mini App через Telegram-бота.'
+      message: 'Telegram WebApp API не найден. Откройте этот URL через кнопку mini app в Telegram-боте.'
     };
   }
 
@@ -235,16 +232,14 @@ export function attachTelegramListeners(webApp, onChange) {
     return () => {};
   }
 
-  const handlers = [
-    ['themeChanged', onChange],
-    ['viewportChanged', onChange],
-    ['safeAreaChanged', onChange]
-  ];
+  const rerender = () => onChange();
 
-  handlers.forEach(([event, cb]) => webApp.onEvent(event, cb));
+  webApp.onEvent('themeChanged', rerender);
+  webApp.onEvent('viewportChanged', rerender);
 
   return () => {
     if (typeof webApp.offEvent !== 'function') return;
-    handlers.forEach(([event, cb]) => webApp.offEvent(event, cb));
+    webApp.offEvent('themeChanged', rerender);
+    webApp.offEvent('viewportChanged', rerender);
   };
 }
