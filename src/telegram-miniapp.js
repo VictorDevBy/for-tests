@@ -24,18 +24,6 @@ const WEBAPP_OBJECT_FIELDS = [
   'BiometricManager'
 ];
 
-const FILTERED_KEYS = new Set([
-  'offEvent',
-  'onEvent',
-  'sendData',
-  'openLink',
-  'openTelegramLink',
-  'showPopup',
-  'showAlert',
-  'showConfirm',
-  'CloudStorage',
-  'HapticFeedback'
-]);
 
 function getTelegramWebApp() {
   return window?.Telegram?.WebApp ?? null;
@@ -61,9 +49,9 @@ function safelyRead(getter) {
   }
 }
 
-function flatten(input, prefix = '', output = {}) {
+function flatten(input, prefix = '', output = {}, seen = new WeakSet()) {
   if (isPrimitive(input) || Array.isArray(input)) {
-    if (!isEmptyValue(input) && prefix) {
+    if (prefix) {
       output[prefix] = input;
     }
     return output;
@@ -73,20 +61,27 @@ function flatten(input, prefix = '', output = {}) {
     return output;
   }
 
-  Object.entries(input).forEach(([key, value]) => {
-    if (FILTERED_KEYS.has(key)) return;
+  if (seen.has(input)) {
+    if (prefix) output[prefix] = '[Circular]';
+    return output;
+  }
+  seen.add(input);
 
+  Object.entries(input).forEach(([key, value]) => {
     const path = prefix ? `${prefix}.${key}` : key;
 
+    if (typeof value === 'function') {
+      output[path] = `[Function ${value.name || 'anonymous'}]`;
+      return;
+    }
+
     if (isPrimitive(value) || Array.isArray(value)) {
-      if (!isEmptyValue(value)) {
-        output[path] = value;
-      }
+      output[path] = value;
       return;
     }
 
     if (value && typeof value === 'object') {
-      flatten(value, path, output);
+      flatten(value, path, output, seen);
     }
   });
 
@@ -125,24 +120,24 @@ function getWebAppSnapshot(webApp) {
 
   WEBAPP_SCALAR_FIELDS.forEach((field) => {
     const value = safelyRead(() => webApp[field]);
-    if (!isEmptyValue(value)) {
+    if (value !== undefined) {
       snapshot[field] = value;
     }
   });
 
   WEBAPP_OBJECT_FIELDS.forEach((field) => {
     const value = safelyRead(() => webApp[field]);
-    if (value && typeof value === 'object' && !isEmptyValue(value)) {
+    if (value !== undefined) {
       snapshot[field] = value;
     }
   });
 
-  Object.keys(webApp)
-    .filter((key) => !FILTERED_KEYS.has(key) && !snapshot[key])
+  Object.getOwnPropertyNames(webApp)
+    .filter((key) => !(key in snapshot))
     .sort()
     .forEach((key) => {
       const value = safelyRead(() => webApp[key]);
-      if (typeof value === 'function' || isEmptyValue(value)) return;
+      if (value === undefined) return;
       snapshot[key] = value;
     });
 
@@ -233,7 +228,8 @@ export function attachTelegramListeners(webApp, onChange) {
 
   const handlers = [
     ['themeChanged', onChange],
-    ['viewportChanged', onChange]
+    ['viewportChanged', onChange],
+    ['safeAreaChanged', onChange]
   ];
 
   handlers.forEach(([event, cb]) => webApp.onEvent(event, cb));
