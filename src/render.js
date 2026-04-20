@@ -55,7 +55,7 @@ function createSection(title, data) {
   return section;
 }
 
-function createHeaderCard(telegramAvailable) {
+function createHeaderCard(telegramAvailable, projectVersion) {
   const card = document.createElement('section');
   card.className = 'card';
 
@@ -68,7 +68,11 @@ function createHeaderCard(telegramAvailable) {
     ? 'Отображаются только непустые значения, доступные в текущей сессии Mini App.'
     : 'Telegram WebApp API не найден. Откройте этот URL через кнопку mini app в Telegram-боте.';
 
-  card.append(title, subtitle);
+  const version = document.createElement('p');
+  version.className = 'version';
+  version.textContent = `Версия проекта: ${projectVersion || 'unknown'}`;
+
+  card.append(title, subtitle, version);
   return card;
 }
 
@@ -112,6 +116,11 @@ function ensureStyles() {
       margin: 0;
       color: var(--subtle);
     }
+    .version {
+      margin: 8px 0 0;
+      font-weight: 600;
+      color: var(--text);
+    }
     table {
       width: 100%;
       border-collapse: collapse;
@@ -144,7 +153,7 @@ export function renderApp(root, model) {
   container.className = 'app';
 
   const telegram = model.telegram || {};
-  container.appendChild(createHeaderCard(Boolean(telegram.available)));
+  container.appendChild(createHeaderCard(Boolean(telegram.available), model.projectVersion));
 
   if (telegram.available) {
     const telegramSections = [
