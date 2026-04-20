@@ -24,6 +24,18 @@ const WEBAPP_OBJECT_FIELDS = [
   'BiometricManager'
 ];
 
+const FILTERED_KEYS = new Set([
+  'offEvent',
+  'onEvent',
+  'sendData',
+  'openLink',
+  'openTelegramLink',
+  'showPopup',
+  'showAlert',
+  'showConfirm',
+  'CloudStorage',
+  'HapticFeedback'
+]);
 
 function getTelegramWebApp() {
   return window?.Telegram?.WebApp ?? null;
@@ -49,9 +61,9 @@ function safelyRead(getter) {
   }
 }
 
-function flatten(input, prefix = '', output = {}, seen = new WeakSet()) {
+function flatten(input, prefix = '', output = {}) {
   if (isPrimitive(input) || Array.isArray(input)) {
-    if (prefix) {
+    if (!isEmptyValue(input) && prefix) {
       output[prefix] = input;
     }
     return output;
@@ -61,27 +73,20 @@ function flatten(input, prefix = '', output = {}, seen = new WeakSet()) {
     return output;
   }
 
-  if (seen.has(input)) {
-    if (prefix) output[prefix] = '[Circular]';
-    return output;
-  }
-  seen.add(input);
-
   Object.entries(input).forEach(([key, value]) => {
+    if (FILTERED_KEYS.has(key)) return;
+
     const path = prefix ? `${prefix}.${key}` : key;
 
-    if (typeof value === 'function') {
-      output[path] = `[Function ${value.name || 'anonymous'}]`;
-      return;
-    }
-
     if (isPrimitive(value) || Array.isArray(value)) {
-      output[path] = value;
+      if (!isEmptyValue(value)) {
+        output[path] = value;
+      }
       return;
     }
 
     if (value && typeof value === 'object') {
-      flatten(value, path, output, seen);
+      flatten(value, path, output);
     }
   });
 
@@ -120,24 +125,28 @@ function getWebAppSnapshot(webApp) {
 
   WEBAPP_SCALAR_FIELDS.forEach((field) => {
     const value = safelyRead(() => webApp[field]);
-    if (value !== undefined) {
+    if (!isEmptyValue(value)) {
       snapshot[field] = value;
     }
   });
 
   WEBAPP_OBJECT_FIELDS.forEach((field) => {
     const value = safelyRead(() => webApp[field]);
-    if (value !== undefined) {
+    if (value && typeof value === 'object' && !isEmptyValue(value)) {
       snapshot[field] = value;
     }
   });
 
-  Object.getOwnPropertyNames(webApp)
-    .filter((key) => !(key in snapshot))
+  const dynamicKeys = Array.from(
+    new Set([...Object.keys(webApp), ...Object.getOwnPropertyNames(webApp)])
+  );
+
+  dynamicKeys
+    .filter((key) => !FILTERED_KEYS.has(key) && !(key in snapshot))
     .sort()
     .forEach((key) => {
       const value = safelyRead(() => webApp[key]);
-      if (value === undefined) return;
+      if (typeof value === 'function' || isEmptyValue(value)) return;
       snapshot[key] = value;
     });
 

@@ -6,10 +6,11 @@ import {
 import { collectClientEnvironment } from './client-environment.js';
 import { renderApp } from './render.js';
 
-const root = document.getElementById('app');
+const ROOT_ID = 'tg-miniapp-root';
+const root = document.getElementById(ROOT_ID);
 
 if (!root) {
-  throw new Error('Root element #app not found');
+  throw new Error(`Root element #${ROOT_ID} not found`);
 }
 
 const { webApp } = initTelegram();
