@@ -13,7 +13,8 @@
     'headerColor',
     'backgroundColor',
     'isClosingConfirmationEnabled',
-    'isVerticalSwipesEnabled'
+    'isVerticalSwipesEnabled',
+    'initData'
   ];
 
   const WEBAPP_OBJECT_FIELDS = [
@@ -89,6 +90,31 @@
     });
 
     return output;
+  };
+
+  const parseJsonIfPossible = (value) => {
+    if (typeof value !== 'string') return value;
+    try {
+      return JSON.parse(value);
+    } catch (_error) {
+      return value;
+    }
+  };
+
+  const parseInitData = (initData) => {
+    if (!initData || typeof initData !== 'string') return {};
+
+    const query = new URLSearchParams(initData);
+    const result = {};
+
+    query.forEach((value, key) => {
+      const parsedValue = parseJsonIfPossible(value);
+      if (!isEmptyValue(parsedValue)) {
+        result[key] = parsedValue;
+      }
+    });
+
+    return result;
   };
 
   const getWebAppSnapshot = () => {
@@ -281,6 +307,11 @@
 
     const contextInfo = flatten(snapshot.initDataUnsafe || {});
 
+    const initDataInfo = flatten({
+      initDataRaw: snapshot.initData,
+      initDataParsed: parseInitData(snapshot.initData)
+    });
+
     const extraInfo = flatten(
       Object.keys(snapshot).reduce((acc, key) => {
         const known = WEBAPP_SCALAR_FIELDS.includes(key) || WEBAPP_OBJECT_FIELDS.includes(key);
@@ -289,7 +320,7 @@
       }, {})
     );
 
-    return { webAppInfo, visualInfo, contextInfo, extraInfo };
+    return { webAppInfo, visualInfo, contextInfo, initDataInfo, extraInfo };
   };
 
   const render = () => {
@@ -304,12 +335,13 @@
     safelyRead(() => tg.expand());
 
     const snapshot = getWebAppSnapshot();
-    const { webAppInfo, visualInfo, contextInfo, extraInfo } = splitSnapshot(snapshot);
+    const { webAppInfo, visualInfo, contextInfo, initDataInfo, extraInfo } = splitSnapshot(snapshot);
 
     const sections = [
       createSection('WebApp: общая информация', webAppInfo),
       createSection('WebApp: UI, кнопки, тема, safe-area', visualInfo),
       createSection('initDataUnsafe: пользователь / чат / контекст запуска', contextInfo),
+      createSection('initData: raw + parsed query-параметры (best effort)', initDataInfo),
       createSection('Прочие доступные поля WebApp', extraInfo)
     ].filter(Boolean);
 
