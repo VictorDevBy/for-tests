@@ -1,80 +1,139 @@
 (() => {
   const tg = window.Telegram?.WebApp;
 
+  const ROOT_ID = 'tg-miniapp-root';
+
+  const WEBAPP_SCALAR_FIELDS = [
+    'version',
+    'platform',
+    'colorScheme',
+    'isExpanded',
+    'viewportHeight',
+    'viewportStableHeight',
+    'headerColor',
+    'backgroundColor',
+    'isClosingConfirmationEnabled',
+    'isVerticalSwipesEnabled'
+  ];
+
+  const WEBAPP_OBJECT_FIELDS = [
+    'themeParams',
+    'safeAreaInset',
+    'contentSafeAreaInset',
+    'initDataUnsafe',
+    'MainButton',
+    'SecondaryButton',
+    'BackButton',
+    'SettingsButton',
+    'BiometricManager'
+  ];
+
+  const FILTERED_KEYS = new Set([
+    'offEvent',
+    'onEvent',
+    'sendData',
+    'openLink',
+    'openTelegramLink',
+    'showPopup',
+    'showAlert',
+    'showConfirm',
+    'CloudStorage',
+    'HapticFeedback'
+  ]);
+
+  const isPrimitive = (value) => value === null || ['string', 'number', 'boolean'].includes(typeof value);
+
   const isEmptyValue = (value) => {
     if (value === null || value === undefined) return true;
-    if (typeof value === 'string' && value.trim() === '') return true;
+    if (typeof value === 'string') return value.trim() === '';
     if (Array.isArray(value)) return value.length === 0;
     if (typeof value === 'object') return Object.keys(value).length === 0;
     return false;
   };
 
-  const flattenObject = (obj, parentKey = '', out = {}) => {
-    if (!obj || typeof obj !== 'object') return out;
+  const safelyRead = (getter) => {
+    try {
+      return getter();
+    } catch (_error) {
+      return undefined;
+    }
+  };
 
-    Object.entries(obj).forEach(([key, value]) => {
-      const path = parentKey ? `${parentKey}.${key}` : key;
+  const flatten = (input, prefix = '', output = {}) => {
+    if (isPrimitive(input) || Array.isArray(input)) {
+      if (!isEmptyValue(input) && prefix) {
+        output[prefix] = input;
+      }
+      return output;
+    }
 
-      if (value && typeof value === 'object' && !Array.isArray(value)) {
-        flattenObject(value, path, out);
-      } else if (!isEmptyValue(value)) {
-        out[path] = value;
+    if (!input || typeof input !== 'object') {
+      return output;
+    }
+
+    Object.entries(input).forEach(([key, value]) => {
+      if (FILTERED_KEYS.has(key)) return;
+
+      const path = prefix ? `${prefix}.${key}` : key;
+
+      if (isPrimitive(value) || Array.isArray(value)) {
+        if (!isEmptyValue(value)) {
+          output[path] = value;
+        }
+        return;
+      }
+
+      if (value && typeof value === 'object') {
+        flatten(value, path, output);
       }
     });
 
-    return out;
+    return output;
   };
 
   const getWebAppSnapshot = () => {
     if (!tg) return {};
 
-    const candidateFields = [
-      'version',
-      'platform',
-      'colorScheme',
-      'themeParams',
-      'isExpanded',
-      'viewportHeight',
-      'viewportStableHeight',
-      'headerColor',
-      'backgroundColor',
-      'isClosingConfirmationEnabled',
-      'isVerticalSwipesEnabled',
-      'safeAreaInset',
-      'contentSafeAreaInset',
-      'initData',
-      'initDataUnsafe'
-    ];
-
     const snapshot = {};
 
-    candidateFields.forEach((field) => {
-      try {
-        const value = tg[field];
-        if (typeof value !== 'function' && !isEmptyValue(value)) {
-          snapshot[field] = value;
-        }
-      } catch (_err) {
-        // Ignore inaccessible fields.
+    WEBAPP_SCALAR_FIELDS.forEach((field) => {
+      const value = safelyRead(() => tg[field]);
+      if (!isEmptyValue(value)) {
+        snapshot[field] = value;
       }
+    });
+
+    WEBAPP_OBJECT_FIELDS.forEach((field) => {
+      const value = safelyRead(() => tg[field]);
+      if (value && typeof value === 'object' && !isEmptyValue(value)) {
+        snapshot[field] = value;
+      }
+    });
+
+    const dynamicOwnKeys = Object.keys(tg)
+      .filter((key) => !FILTERED_KEYS.has(key) && !snapshot[key])
+      .sort();
+
+    dynamicOwnKeys.forEach((key) => {
+      const value = safelyRead(() => tg[key]);
+      if (typeof value === 'function' || isEmptyValue(value)) return;
+      snapshot[key] = value;
     });
 
     return snapshot;
   };
 
-  const section = (title, data) => {
-    if (!data || Object.keys(data).length === 0) return null;
+  const toDisplayValue = (value) => {
+    if (Array.isArray(value)) return value.join(', ');
+    if (typeof value === 'object' && value !== null) return JSON.stringify(value);
+    return String(value);
+  };
 
-    const wrapper = document.createElement('section');
-    wrapper.className = 'card';
-
-    const heading = document.createElement('h2');
-    heading.textContent = title;
-    wrapper.appendChild(heading);
-
+  const createDataTable = (flatData) => {
     const table = document.createElement('table');
+    const sortedEntries = Object.entries(flatData).sort(([a], [b]) => a.localeCompare(b));
 
-    Object.entries(data).forEach(([key, value]) => {
+    sortedEntries.forEach(([key, value]) => {
       if (isEmptyValue(value)) return;
 
       const row = document.createElement('tr');
@@ -85,50 +144,76 @@
 
       const valueCell = document.createElement('td');
       valueCell.className = 'value';
-      valueCell.textContent = Array.isArray(value)
-        ? value.join(', ')
-        : typeof value === 'object'
-          ? JSON.stringify(value)
-          : String(value);
+      valueCell.textContent = toDisplayValue(value);
 
-      row.appendChild(keyCell);
-      row.appendChild(valueCell);
+      row.append(keyCell, valueCell);
       table.appendChild(row);
     });
 
-    if (!table.rows.length) return null;
-
-    wrapper.appendChild(table);
-    return wrapper;
+    return table.rows.length ? table : null;
   };
 
-  const injectStyles = () => {
+  const createSection = (title, data) => {
+    const table = createDataTable(data);
+    if (!table) return null;
+
+    const section = document.createElement('section');
+    section.className = 'card';
+
+    const heading = document.createElement('h2');
+    heading.textContent = title;
+
+    section.append(heading, table);
+    return section;
+  };
+
+  const createHeaderCard = () => {
+    const card = document.createElement('section');
+    card.className = 'card';
+
+    const title = document.createElement('h1');
+    title.textContent = 'Telegram Mini App • Runtime Inspector';
+
+    const subtitle = document.createElement('p');
+    subtitle.className = 'note';
+    subtitle.textContent = tg
+      ? 'Отображаются только непустые значения, доступные в текущей сессии Mini App.'
+      : 'Telegram WebApp API не найден. Откройте этот URL через кнопку mini app в Telegram-боте.';
+
+    card.append(title, subtitle);
+    return card;
+  };
+
+  const ensureStyles = () => {
+    if (document.getElementById('tg-miniapp-style')) return;
+
     const style = document.createElement('style');
+    style.id = 'tg-miniapp-style';
     style.textContent = `
       :root {
-        --bg: #0f172a;
-        --card: #1e293b;
-        --text: #e2e8f0;
-        --subtle: #94a3b8;
-        --line: #334155;
+        --bg: #0b1220;
+        --card: #111a2c;
+        --text: #e6edf7;
+        --subtle: #9fb0cc;
+        --line: #223251;
       }
       * { box-sizing: border-box; }
       body {
         margin: 0;
         padding: 16px;
-        font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
-        background: var(--bg);
+        font: 14px/1.45 Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial, sans-serif;
         color: var(--text);
+        background: var(--bg);
       }
       main {
-        max-width: 980px;
+        max-width: 1080px;
         margin: 0 auto;
         display: grid;
         gap: 14px;
       }
       .card {
-        background: var(--card);
         border: 1px solid var(--line);
+        background: var(--card);
         border-radius: 12px;
         padding: 12px;
       }
@@ -137,6 +222,10 @@
       }
       h1 { font-size: 20px; }
       h2 { font-size: 16px; color: var(--subtle); }
+      .note {
+        margin: 0;
+        color: var(--subtle);
+      }
       table {
         width: 100%;
         border-collapse: collapse;
@@ -146,82 +235,95 @@
         border-top: 1px solid var(--line);
         padding: 8px;
         vertical-align: top;
-        word-break: break-word;
+        overflow-wrap: anywhere;
       }
       td.key {
-        width: 40%;
+        width: 38%;
         color: var(--subtle);
       }
-      .note {
-        color: var(--subtle);
-        font-size: 13px;
+      @media (max-width: 640px) {
+        td.key { width: 45%; }
       }
     `;
+
     document.head.appendChild(style);
   };
 
-  const render = () => {
-    injectStyles();
+  const createRoot = () => {
+    const existing = document.getElementById(ROOT_ID);
+    if (existing) return existing;
 
     const main = document.createElement('main');
-    const titleCard = document.createElement('section');
-    titleCard.className = 'card';
-
-    const title = document.createElement('h1');
-    title.textContent = 'Информация из Telegram Mini App API';
-
-    const note = document.createElement('p');
-    note.className = 'note';
-    note.textContent = tg
-      ? 'Показываются только непустые поля, которые доступны в текущей сессии Mini App.'
-      : 'Telegram WebApp API не найден. Откройте страницу внутри Telegram Mini App.';
-
-    titleCard.appendChild(title);
-    titleCard.appendChild(note);
-    main.appendChild(titleCard);
-
-    if (tg) {
-      try {
-        tg.ready();
-        tg.expand();
-      } catch (_err) {
-        // Ignore if not supported in current context.
-      }
-
-      const snapshot = getWebAppSnapshot();
-
-      const general = flattenObject({
-        version: snapshot.version,
-        platform: snapshot.platform,
-        colorScheme: snapshot.colorScheme,
-        viewportHeight: snapshot.viewportHeight,
-        viewportStableHeight: snapshot.viewportStableHeight,
-        isExpanded: snapshot.isExpanded,
-        headerColor: snapshot.headerColor,
-        backgroundColor: snapshot.backgroundColor,
-        isClosingConfirmationEnabled: snapshot.isClosingConfirmationEnabled,
-        isVerticalSwipesEnabled: snapshot.isVerticalSwipesEnabled
-      });
-
-      const theme = flattenObject({
-        themeParams: snapshot.themeParams,
-        safeAreaInset: snapshot.safeAreaInset,
-        contentSafeAreaInset: snapshot.contentSafeAreaInset
-      });
-
-      const initUnsafe = flattenObject(snapshot.initDataUnsafe || {});
-
-      const sections = [
-        section('WebApp: общие поля', general),
-        section('WebApp: тема и safe area', theme),
-        section('initDataUnsafe (пользователь, чат, устройство, контекст)', initUnsafe)
-      ].filter(Boolean);
-
-      sections.forEach((s) => main.appendChild(s));
-    }
-
+    main.id = ROOT_ID;
     document.body.appendChild(main);
+    return main;
+  };
+
+  const splitSnapshot = (snapshot) => {
+    const webAppInfo = flatten(
+      WEBAPP_SCALAR_FIELDS.reduce((acc, field) => {
+        if (!isEmptyValue(snapshot[field])) {
+          acc[field] = snapshot[field];
+        }
+        return acc;
+      }, {})
+    );
+
+    const visualInfo = flatten({
+      themeParams: snapshot.themeParams,
+      safeAreaInset: snapshot.safeAreaInset,
+      contentSafeAreaInset: snapshot.contentSafeAreaInset,
+      MainButton: snapshot.MainButton,
+      SecondaryButton: snapshot.SecondaryButton,
+      BackButton: snapshot.BackButton,
+      SettingsButton: snapshot.SettingsButton
+    });
+
+    const contextInfo = flatten(snapshot.initDataUnsafe || {});
+
+    const extraInfo = flatten(
+      Object.keys(snapshot).reduce((acc, key) => {
+        const known = WEBAPP_SCALAR_FIELDS.includes(key) || WEBAPP_OBJECT_FIELDS.includes(key);
+        if (!known) acc[key] = snapshot[key];
+        return acc;
+      }, {})
+    );
+
+    return { webAppInfo, visualInfo, contextInfo, extraInfo };
+  };
+
+  const render = () => {
+    ensureStyles();
+    const root = createRoot();
+    root.textContent = '';
+    root.appendChild(createHeaderCard());
+
+    if (!tg) return;
+
+    safelyRead(() => tg.ready());
+    safelyRead(() => tg.expand());
+
+    const snapshot = getWebAppSnapshot();
+    const { webAppInfo, visualInfo, contextInfo, extraInfo } = splitSnapshot(snapshot);
+
+    const sections = [
+      createSection('WebApp: общая информация', webAppInfo),
+      createSection('WebApp: UI, кнопки, тема, safe-area', visualInfo),
+      createSection('initDataUnsafe: пользователь / чат / контекст запуска', contextInfo),
+      createSection('Прочие доступные поля WebApp', extraInfo)
+    ].filter(Boolean);
+
+    sections.forEach((section) => root.appendChild(section));
+  };
+
+  const subscribeToUpdates = () => {
+    if (!tg?.onEvent) return;
+
+    const rerender = () => render();
+    tg.onEvent('themeChanged', rerender);
+    tg.onEvent('viewportChanged', rerender);
   };
 
   render();
+  subscribeToUpdates();
 })();
