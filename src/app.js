@@ -1,5 +1,4 @@
 (() => {
-  const tg = window.Telegram?.WebApp;
   const PROJECT_VERSION = '1.0.1';
   const ROOT_ID = 'tg-miniapp-root';
 
@@ -41,6 +40,8 @@
     'CloudStorage',
     'HapticFeedback'
   ]);
+
+  const getTelegramWebApp = () => window.Telegram?.WebApp ?? null;
 
   const isPrimitive = (value) => value === null || ['string', 'number', 'boolean'].includes(typeof value);
 
@@ -117,7 +118,7 @@
     return result;
   };
 
-  const getWebAppSnapshot = () => {
+  const getWebAppSnapshot = (tg) => {
     if (!tg) return {};
 
     const snapshot = {};
@@ -193,7 +194,7 @@
     return section;
   };
 
-  const createHeaderCard = () => {
+  const createHeaderCard = (tg) => {
     const card = document.createElement('section');
     card.className = 'card';
 
@@ -247,19 +248,11 @@
         border-radius: 12px;
         padding: 12px;
       }
-      h1, h2 {
-        margin: 0 0 10px;
-      }
+      h1, h2 { margin: 0 0 10px; }
       h1 { font-size: 20px; }
       h2 { font-size: 16px; color: var(--subtle); }
-      .note {
-        margin: 0;
-        color: var(--subtle);
-      }
-      .version {
-        margin: 8px 0 0;
-        font-weight: 600;
-      }
+      .note { margin: 0; color: var(--subtle); }
+      .version { margin: 8px 0 0; font-weight: 600; }
       table {
         width: 100%;
         border-collapse: collapse;
@@ -271,10 +264,7 @@
         vertical-align: top;
         overflow-wrap: anywhere;
       }
-      td.key {
-        width: 38%;
-        color: var(--subtle);
-      }
+      td.key { width: 38%; color: var(--subtle); }
       @media (max-width: 640px) {
         td.key { width: 45%; }
       }
@@ -331,18 +321,31 @@
     return { webAppInfo, visualInfo, contextInfo, initDataInfo, extraInfo };
   };
 
+  let subscribed = false;
+
+  const subscribeToUpdates = (tg) => {
+    if (!tg?.onEvent || subscribed) return;
+
+    const rerender = () => render();
+    tg.onEvent('themeChanged', rerender);
+    tg.onEvent('viewportChanged', rerender);
+    subscribed = true;
+  };
+
   const render = () => {
+    const tg = getTelegramWebApp();
+
     ensureStyles();
     const root = createRoot();
     root.textContent = '';
-    root.appendChild(createHeaderCard());
+    root.appendChild(createHeaderCard(tg));
 
     if (!tg) return;
 
     safelyRead(() => tg.ready());
     safelyRead(() => tg.expand());
 
-    const snapshot = getWebAppSnapshot();
+    const snapshot = getWebAppSnapshot(tg);
     const { webAppInfo, visualInfo, contextInfo, initDataInfo, extraInfo } = splitSnapshot(snapshot);
 
     const sections = [
@@ -354,16 +357,15 @@
     ].filter(Boolean);
 
     sections.forEach((section) => root.appendChild(section));
-  };
-
-  const subscribeToUpdates = () => {
-    if (!tg?.onEvent) return;
-
-    const rerender = () => render();
-    tg.onEvent('themeChanged', rerender);
-    tg.onEvent('viewportChanged', rerender);
+    subscribeToUpdates(tg);
   };
 
   render();
-  subscribeToUpdates();
+  const bootstrapPoll = window.setInterval(() => {
+    if (subscribed) {
+      window.clearInterval(bootstrapPoll);
+      return;
+    }
+    render();
+  }, 500);
 })();
