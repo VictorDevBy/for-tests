@@ -7,7 +7,7 @@ import { collectClientEnvironment } from './client-environment.js';
 import { renderApp } from './render.js';
 
 const ROOT_ID = 'tg-miniapp-root';
-const PROJECT_VERSION = '1.0.0';
+const PROJECT_VERSION = '1.0.1';
 const root = document.getElementById(ROOT_ID);
 
 if (!root) {
